@@ -10,9 +10,14 @@
 		<Description>Utilities for loading, compiling, and inspecting .NET projects and types with Roslyn.</Description>
 		<PackageTags>roslyn;codeanalysis;msbuild;utilities</PackageTags>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<IncludeSymbols>true</IncludeSymbols>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="..\README.md" Pack="true" PackagePath="\" />
+	</ItemGroup>
 
 	<ItemGroup Condition="'$(TargetFramework)' != 'net6'">
 

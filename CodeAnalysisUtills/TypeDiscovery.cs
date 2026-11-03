@@ -6,7 +6,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace vsc.Mappings
 {
-    public static class Finders
+    public static class TypeDiscovery
     {
         /// <summary>
         /// Emits the compilation to memory and loads the resulting assembly.
