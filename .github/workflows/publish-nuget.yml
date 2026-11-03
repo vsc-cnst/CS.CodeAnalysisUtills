@@ -1,0 +1,54 @@
+name: Publish NuGet package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_PATH: CodeAnalysisUtills/CodeAnalysisUtills.csproj
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Increment patch version
+        shell: pwsh
+        run: |
+          [xml]$csproj = Get-Content $env:PROJECT_PATH
+          $group = $csproj.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1
+          $parts = $group.Version.Split('.')
+          $parts[2] = ([int]$parts[2] + 1).ToString()
+          $newVersion = $parts -join '.'
+          $group.Version = $newVersion
+          $csproj.Save((Resolve-Path $env:PROJECT_PATH))
+          "NEW_VERSION=$newVersion" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Version bumped to $newVersion"
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add $PROJECT_PATH
+          git commit -m "Bump version to $NEW_VERSION [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Pack
+        run: dotnet pack $PROJECT_PATH -c Release -o ./nupkg
+
+      - name: Push to nuget.org
+        run: >
+          dotnet nuget push "./nupkg/*.nupkg"
+          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
