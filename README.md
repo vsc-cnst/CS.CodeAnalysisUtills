@@ -32,6 +32,9 @@ IEnumerable<Type> allTypes = Utils.GetAllClasses(project, compilation, Array.Emp
 
 // Only classes in specific namespaces
 IEnumerable<Type> filtered = Utils.GetAllClasses(project, compilation, ["MyApp.Models"]);
+
+// Classes in namespaces starting with a prefix
+IEnumerable<Type> prefixed = Utils.GetAllClasses(project, compilation, ["MyApp"], ComparisonType.StartsWith);
 ```
 
 ## API
@@ -49,9 +52,11 @@ IEnumerable<Type> filtered = Utils.GetAllClasses(project, compilation, ["MyApp.M
 
 | Method | Description |
 |---|---|
-| `GetClasses(this Document document, string[] targetNamespaces)` | Finds class declarations in a document, optionally filtered by namespace. |
+| `GetClasses(this Document document, string[] targetNamespaces, ComparisonType comparisonType = ComparisonType.Equals)` | Finds class declarations in a document, optionally filtered by namespace. |
 | `ToTypes(this IEnumerable<ClassDeclarationSyntax>, Assembly, SemanticModel)` | Maps class declarations to runtime types. |
-| `GetAllClasses(Project, Compilation, string[] targetNamespaces)` | Retrieves all runtime types declared in the project, optionally filtered by namespace. |
+| `GetAllClasses(Project, Compilation, string[] targetNamespaces, ComparisonType comparisonType = ComparisonType.Equals)` | Retrieves all runtime types declared in the project, optionally filtered by namespace. |
+
+`ComparisonType` controls how namespace names are matched: `StartsWith`, `EndsWith`, `Contains`, or `Equals` (default).
 
 ### `CodeAnalysisUtills.Extensions.MemberInfoExtensions`
 
