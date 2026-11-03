@@ -1,45 +1,13 @@
-﻿using System.Diagnostics;
-using System.Reflection;
+﻿using System.Reflection;
+using CodeAnalysisUtills.ProjectAnalysis;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace vsc.Mappings
+namespace CodeAnalysisUtills.Extensions
 {
-    public static class TypeDiscovery
+    public static class Utils
     {
-        /// <summary>
-        /// Emits the compilation to memory and loads the resulting assembly.
-        /// </summary>
-        public static Assembly LoadAssembly(Compilation compilation)
-        {
-            Stopwatch sw = Stopwatch.StartNew();
-            sw.Start();
-
-            Assembly assembly;
-
-            using (var ms = new MemoryStream())
-            {
-                var emitResult = compilation.Emit(ms);
-
-                if (emitResult.Success)
-                {
-                    // Load the emitted assembly
-                    ms.Seek(0, SeekOrigin.Begin);
-                    assembly = Assembly.Load(ms.ToArray());
-                }
-                else
-                {
-                    throw new Exception("No Assembly!");
-                }
-            }
-
-            Console.WriteLine($"Assembly loaded in {sw.ElapsedMilliseconds / 1000m}s");
-            sw.Stop();
-
-            return assembly;
-        }
-
         /// <summary>
         /// Finds all classes in the specified namespaces of a document.
         /// </summary>
@@ -103,9 +71,9 @@ namespace vsc.Mappings
         /// <summary>
         /// Retrieves all runtime types declared in the project's documents, optionally filtered by namespace.
         /// </summary>
-        public static IEnumerable<Type> AllClasses(Project project, Compilation compilation, string[] targetNamespaces)
+        public static IEnumerable<Type> GetAllClasses(Project project, Compilation compilation, string[] targetNamespaces)
         {
-            Assembly assembly = LoadAssembly(compilation);
+            Assembly assembly = CodeAnalysisExtensions.LoadAssembly(compilation);
 
             var types = project.Documents
                         .AsParallel()

@@ -6,7 +6,7 @@ using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.MSBuild;
 
-namespace vsc.ProjectAnalysis
+namespace CodeAnalysisUtills.ProjectAnalysis
 {
     /// <summary>
     /// Provides extension methods for opening and compiling MSBuild projects with Roslyn.
@@ -86,6 +86,37 @@ namespace vsc.ProjectAnalysis
             ).ToList());
         }
 
+        /// <summary>
+        /// Emits the compilation to memory and loads the resulting assembly.
+        /// </summary>
+        public static Assembly LoadAssembly(Compilation compilation)
+        {
+            Stopwatch sw = Stopwatch.StartNew();
+            sw.Start();
+
+            Assembly assembly;
+
+            using (var ms = new MemoryStream())
+            {
+                var emitResult = compilation.Emit(ms);
+
+                if (emitResult.Success)
+                {
+                    // Load the emitted assembly
+                    ms.Seek(0, SeekOrigin.Begin);
+                    assembly = Assembly.Load(ms.ToArray());
+                }
+                else
+                {
+                    throw new Exception("No Assembly!");
+                }
+            }
+
+            Console.WriteLine($"Assembly loaded in {sw.ElapsedMilliseconds / 1000m}s");
+            sw.Stop();
+
+            return assembly;
+        }
     }
 }
 
