@@ -16,6 +16,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<None Include=".github\workflows\**" />
 		<None Include="README.md" Pack="true" PackagePath="\" />
 	</ItemGroup>
 
