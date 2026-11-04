@@ -10,6 +10,9 @@
     <PackageTags>roslyn;codeanalysis;msbuild;utilities</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://vsc-cnst.github.io/CodeAnalysisUtills.CS/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/vsc-cnst/CodeAnalysisUtills.CS</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
