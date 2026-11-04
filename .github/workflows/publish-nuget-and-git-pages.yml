@@ -1,4 +1,4 @@
-name: Publish NuGet and Documentation (GitHub Pages)
+name: Publish NuGet and GitHub Pages
 
 on:
   push:
@@ -20,14 +20,19 @@ jobs:
   # Job: Publish NuGet package
   ######################################################
   publish-nuget:
-    if: github.event_name == 'workflow_dispatch'
+    # Manual releases only, and only from a branch (the version bump is pushed back to it).
+    if: github.event_name == 'workflow_dispatch' && github.ref_type == 'branch'
     runs-on: ubuntu-latest
     environment: nuget-org
+
+    concurrency:
+      group: release
+      cancel-in-progress: false
 
     permissions:
       contents: write
       id-token: write
-    
+
     env:
       PROJECT_PATH: CodeAnalysisUtills.csproj
       PACKAGE_VERSION: ${{ inputs.version }}
@@ -43,40 +48,37 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Update the Version property in the csproj
+      # Validate the input, then write it to <Version> in the csproj.
       - name: Update project version
+        id: version
         shell: pwsh
         run: |
-          [xml]$project = Get-Content $env:PROJECT_PATH
-
-          $propertyGroup = $project.SelectSingleNode(
-            "/*[local-name()='Project']/*[local-name()='PropertyGroup']"
-          )
-
-          # Fail if the project doesn't contain a PropertyGroup
-          # where the Version property can be added.
-          if ($null -eq $propertyGroup) {
-            throw "No PropertyGroup found in $env:PROJECT_PATH"
+          # Fail early if the input is not a valid SemVer version (MAJOR.MINOR.PATCH[-prerelease]).
+          if ($env:PACKAGE_VERSION -notmatch
+            throw "Invalid version '$env:PACKAGE_VERSION'. Expected SemVer, e.g. 1.2.3 or 1.2.3-beta.1"
           }
 
-          $versionNode = $propertyGroup.SelectSingleNode(
-            "*[local-name()='Version']"
-          )
+          [xml]$project = Get-Content -Raw $env:PROJECT_PATH
+          $versionNode = $project.SelectSingleNode("//*[local-name()='PropertyGroup']/*[local-name()='Version']")
+          # Empty when the csproj has no <Version> element yet.
+          $previousVersion = $versionNode?.InnerText
 
-          # Create the Version element if it doesn't already exist.
-          # Otherwise, reuse the existing element.
+          # The csproj has no <Version> yet: add one to the first PropertyGroup
+          # (fail if there is no PropertyGroup to add it to).
           if ($null -eq $versionNode) {
-            $versionNode = $project.CreateElement(
-              "Version",
-              $project.DocumentElement.NamespaceURI
-            )
-            $propertyGroup.AppendChild($versionNode) | Out-Null
+            $propertyGroup
+              $(throw "No PropertyGroup found in $env:PROJECT_PATH")
+            $versionNode = $propertyGroup.AppendChild(
+              $project.CreateElement('Version', $project.DocumentElement.NamespaceURI))
           }
 
           $versionNode.InnerText = $env:PACKAGE_VERSION
           $project.Save($env:PROJECT_PATH)
 
-      # Commit the version change
+          Write-Host "Version: '$previousVersion' -> '$env:PACKAGE_VERSION'"
+          "previous_version=$previousVersion" >> $env:GITHUB_OUTPUT
+
+      # Commit the version change.
       - name: Commit version change
         run: |
           git config user.name "github-actions[bot]"
@@ -84,54 +86,69 @@ jobs:
 
           git add "$PROJECT_PATH"
 
-          # Stop if the requested version produces no changes.
-          # This prevents creating an empty commit.
+          # Skip the commit when unchanged so a failed release can be retried with the same version.
           if git diff --cached --quiet; then
-            echo "No project version change detected."
-            exit 1
+            echo "Version unchanged. Reusing existing commit."
+          else
+            git commit -m "CI: bump version to $PACKAGE_VERSION"
+            git push origin "HEAD:$GITHUB_REF_NAME"
           fi
 
-          git commit -m "CI: bump version to $PACKAGE_VERSION"
-
-      # Create and push the corresponding tag
-      - name: Create and push git tag
-        run: |
-          TAG="v${PACKAGE_VERSION}"
-
-          # Prevent overwriting an existing release tag.
-          # An existing tag may represent a previously published version.
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists."
-            exit 1
-          fi
-
-          git tag -a "$TAG" -m "Release $TAG"
-
-          git push origin "HEAD:${GITHUB_REF}"
-          git push origin "$TAG"
-
-      # Pack the NuGet package
+      # Pack the NuGet package.
       - name: Pack
         run: dotnet pack "$PROJECT_PATH" -c Release -o ./nupkg
 
-      # Authenticate using NuGet OIDC
+      # Authenticate using NuGet OIDC.
       - name: NuGet login (OIDC to temporary API key)
         uses: NuGet/login@v1
         id: login
         with:
           user: ${{ secrets.NUGET_USER }}
 
-      # Publish package
+      # Publish the package.
       - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: >
           dotnet nuget push "./nupkg/*.nupkg"
-          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --api-key "$NUGET_API_KEY"
           --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      # Tag only after a successful publish; skip if it already exists so retries are safe.
+      - name: Create and push git tag
+        run: |
+          TAG="v$PACKAGE_VERSION"
+
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists. Skipping tag creation."
+          else
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+            echo "Created and pushed tag $TAG"
+          fi
+
+      - name: Release summary
+        env:
+          PREVIOUS_VERSION: ${{ steps.version.outputs.previous_version }}
+        run: |
+          {
+            echo "## NuGet release"
+            echo "- Previous version: $PREVIOUS_VERSION"
+            echo "- Published version: $PACKAGE_VERSION"
+            echo "- Git tag: v$PACKAGE_VERSION"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   ######################################################
   # Job: Deploy Documentation to GitHub Pages
   ######################################################
   deploy-docs:
+    # On pushes to main, deploy directly.
+    # On manual releases, wait for successful NuGet publication.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.publish-nuget.result == 'success') }}
+
+    needs: publish-nuget
+
     runs-on: ubuntu-latest
 
     permissions:
@@ -139,18 +156,25 @@ jobs:
       pages: write
       id-token: write
 
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
+      # Use the branch head (not the triggering SHA) so docs include the version-bump commit.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.x
+          dotnet-version: 10.0.x
 
       - name: Install DocFX
         run: dotnet tool update -g docfx
