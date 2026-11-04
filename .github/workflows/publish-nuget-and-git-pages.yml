@@ -1,0 +1,168 @@
+name: Publish NuGet and Documentation (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "NuGet package version (e.g. 1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+
+  ######################################################
+  # Job: Publish NuGet package
+  ######################################################
+  publish-nuget:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: nuget-org
+
+    permissions:
+      contents: write
+      id-token: write
+    
+    env:
+      PROJECT_PATH: CodeAnalysisUtills.csproj
+      PACKAGE_VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Update the Version property in the csproj
+      - name: Update project version
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content $env:PROJECT_PATH
+
+          $propertyGroup = $project.SelectSingleNode(
+            "/*[local-name()='Project']/*[local-name()='PropertyGroup']"
+          )
+
+          # Fail if the project doesn't contain a PropertyGroup
+          # where the Version property can be added.
+          if ($null -eq $propertyGroup) {
+            throw "No PropertyGroup found in $env:PROJECT_PATH"
+          }
+
+          $versionNode = $propertyGroup.SelectSingleNode(
+            "*[local-name()='Version']"
+          )
+
+          # Create the Version element if it doesn't already exist.
+          # Otherwise, reuse the existing element.
+          if ($null -eq $versionNode) {
+            $versionNode = $project.CreateElement(
+              "Version",
+              $project.DocumentElement.NamespaceURI
+            )
+            $propertyGroup.AppendChild($versionNode) | Out-Null
+          }
+
+          $versionNode.InnerText = $env:PACKAGE_VERSION
+          $project.Save($env:PROJECT_PATH)
+
+      # Commit the version change
+      - name: Commit version change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "$PROJECT_PATH"
+
+          # Stop if the requested version produces no changes.
+          # This prevents creating an empty commit.
+          if git diff --cached --quiet; then
+            echo "No project version change detected."
+            exit 1
+          fi
+
+          git commit -m "CI: bump version to $PACKAGE_VERSION"
+
+      # Create and push the corresponding tag
+      - name: Create and push git tag
+        run: |
+          TAG="v${PACKAGE_VERSION}"
+
+          # Prevent overwriting an existing release tag.
+          # An existing tag may represent a previously published version.
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists."
+            exit 1
+          fi
+
+          git tag -a "$TAG" -m "Release $TAG"
+
+          git push origin "HEAD:${GITHUB_REF}"
+          git push origin "$TAG"
+
+      # Pack the NuGet package
+      - name: Pack
+        run: dotnet pack "$PROJECT_PATH" -c Release -o ./nupkg
+
+      # Authenticate using NuGet OIDC
+      - name: NuGet login (OIDC to temporary API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # Publish package
+      - name: Push to nuget.org
+        run: >
+          dotnet nuget push "./nupkg/*.nupkg"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+
+  ######################################################
+  # Job: Deploy Documentation to GitHub Pages
+  ######################################################
+  deploy-docs:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.x
+
+      - name: Install DocFX
+        run: dotnet tool update -g docfx
+
+      - name: Build documentation
+        run: docfx _docfx/docfx.json
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _docfx/_site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
