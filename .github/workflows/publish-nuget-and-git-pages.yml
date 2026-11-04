@@ -1,111 +1,59 @@
 name: Publish NuGet and GitHub Pages
 
 on:
-  push:
-    branches: [main]
-
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "NuGet package version (e.g. 1.2.3)"
-        required: true
-        type: string
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
-jobs:
+concurrency:
+  group: release
+  cancel-in-progress: false
 
-  ######################################################
-  # Job: Publish NuGet package
-  ######################################################
+jobs:
   publish-nuget:
-    # Manual releases only, and only from a branch (the version bump is pushed back to it).
-    if: github.event_name == 'workflow_dispatch' && github.ref_type == 'branch'
     runs-on: ubuntu-latest
     environment: nuget-org
 
-    concurrency:
-      group: release
-      cancel-in-progress: false
-
     permissions:
-      contents: write
+      contents: read
       id-token: write
 
     env:
       PROJECT_PATH: CodeAnalysisUtills.csproj
-      PACKAGE_VERSION: ${{ inputs.version }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
 
-      # Validate the input, then write it to <Version> in the csproj.
-      - name: Update project version
-        id: version
-        shell: pwsh
+      - name: Read version from release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          # Fail early if the input is not a valid SemVer version (MAJOR.MINOR.PATCH[-prerelease]).
-          if ($env:PACKAGE_VERSION -notmatch
-            throw "Invalid version '$env:PACKAGE_VERSION'. Expected SemVer, e.g. 1.2.3 or 1.2.3-beta.1"
-          }
-
-          [xml]$project = Get-Content -Raw $env:PROJECT_PATH
-          $versionNode = $project.SelectSingleNode("//*[local-name()='PropertyGroup']/*[local-name()='Version']")
-          # Empty when the csproj has no <Version> element yet.
-          $previousVersion = $versionNode?.InnerText
-
-          # The csproj has no <Version> yet: add one to the first PropertyGroup
-          # (fail if there is no PropertyGroup to add it to).
-          if ($null -eq $versionNode) {
-            $propertyGroup
-              $(throw "No PropertyGroup found in $env:PROJECT_PATH")
-            $versionNode = $propertyGroup.AppendChild(
-              $project.CreateElement('Version', $project.DocumentElement.NamespaceURI))
-          }
-
-          $versionNode.InnerText = $env:PACKAGE_VERSION
-          $project.Save($env:PROJECT_PATH)
-
-          Write-Host "Version: '$previousVersion' -> '$env:PACKAGE_VERSION'"
-          "previous_version=$previousVersion" >> $env:GITHUB_OUTPUT
-
-      # Commit the version change.
-      - name: Commit version change
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add "$PROJECT_PATH"
-
-          # Skip the commit when unchanged so a failed release can be retried with the same version.
-          if git diff --cached --quiet; then
-            echo "Version unchanged. Reusing existing commit."
-          else
-            git commit -m "CI: bump version to $PACKAGE_VERSION"
-            git push origin "HEAD:$GITHUB_REF_NAME"
+          VERSION="${RELEASE_TAG#v}"
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::Release tag must be a version such as v1.2.3 or v1.2.3-beta.1"
+            exit 1
           fi
+          echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      # Pack the NuGet package.
       - name: Pack
-        run: dotnet pack "$PROJECT_PATH" -c Release -o ./nupkg
+        run: dotnet pack "$PROJECT_PATH" -c Release -o ./nupkg -p:Version="$PACKAGE_VERSION"
 
-      # Authenticate using NuGet OIDC.
       - name: NuGet login (OIDC to temporary API key)
         uses: NuGet/login@v1
         id: login
         with:
           user: ${{ secrets.NUGET_USER }}
 
-      # Publish the package.
       - name: Push to nuget.org
         env:
           NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
@@ -115,40 +63,8 @@ jobs:
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
 
-      # Tag only after a successful publish; skip if it already exists so retries are safe.
-      - name: Create and push git tag
-        run: |
-          TAG="v$PACKAGE_VERSION"
-
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "Tag $TAG already exists. Skipping tag creation."
-          else
-            git tag -a "$TAG" -m "Release $TAG"
-            git push origin "$TAG"
-            echo "Created and pushed tag $TAG"
-          fi
-
-      - name: Release summary
-        env:
-          PREVIOUS_VERSION: ${{ steps.version.outputs.previous_version }}
-        run: |
-          {
-            echo "## NuGet release"
-            echo "- Previous version: $PREVIOUS_VERSION"
-            echo "- Published version: $PACKAGE_VERSION"
-            echo "- Git tag: v$PACKAGE_VERSION"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  ######################################################
-  # Job: Deploy Documentation to GitHub Pages
-  ######################################################
   deploy-docs:
-    # On pushes to main, deploy directly.
-    # On manual releases, wait for successful NuGet publication.
-    if: ${{ !cancelled() && (github.event_name == 'push' || needs.publish-nuget.result == 'success') }}
-
     needs: publish-nuget
-
     runs-on: ubuntu-latest
 
     permissions:
@@ -156,20 +72,15 @@ jobs:
       pages: write
       id-token: write
 
-    concurrency:
-      group: pages
-      cancel-in-progress: true
-
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      # Use the branch head (not the triggering SHA) so docs include the version-bump commit.
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -177,7 +88,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Install DocFX
-        run: dotnet tool update -g docfx
+        run: dotnet tool install -g docfx
 
       - name: Build documentation
         run: docfx _docfx/docfx.json
