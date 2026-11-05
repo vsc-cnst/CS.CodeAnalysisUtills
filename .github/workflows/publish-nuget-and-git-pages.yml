@@ -12,7 +12,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    uses: ./.github/workflows/run-tests.yml
+
   publish-nuget:
+    needs: test
     runs-on: ubuntu-latest
     environment: nuget-org
 
@@ -21,7 +25,7 @@ jobs:
       id-token: write
 
     env:
-      PROJECT_PATH: CodeAnalysisUtills.csproj
+      PROJECT_PATH: CodeAnalysisUtills/CodeAnalysisUtills.csproj
 
     steps:
       - name: Checkout
@@ -91,12 +95,12 @@ jobs:
         run: dotnet tool install -g docfx
 
       - name: Build documentation
-        run: docfx _docfx/docfx.json
+        run: docfx CodeAnalysisUtills/_docfx/docfx.json
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: _docfx/_site
+          path: CodeAnalysisUtills/_docfx/_site
 
       - name: Deploy to GitHub Pages
         id: deployment

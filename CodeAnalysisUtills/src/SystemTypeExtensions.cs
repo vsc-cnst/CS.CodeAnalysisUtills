@@ -1,6 +1,3 @@
-﻿
-using System.Security.AccessControl;
-
 namespace vsc.CodeAnalysisUtills.Extensions
 {
     /// <summary>
@@ -13,13 +10,12 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// </summary>
         /// <param name="type">The type to inspect.</param>
         /// <returns><see langword="true"/> if the type is <see cref="Nullable{T}"/>; otherwise, <see langword="false"/>.</returns>
-        public static bool IsNullable(this Type type)
+        public static bool IsNullableValueType(this Type type)
         {
-            // Check for Nullable<T> (value types like int? are nullable)
-            if (Nullable.GetUnderlyingType(type) != null) return true;
-
-            return false; // Assume non-nullable if it's a value type and not Nullable<T>
+            ArgumentNullException.ThrowIfNull(type);
+            return Nullable.GetUnderlyingType(type) != null;
         }
+
         /// <summary>
         /// Determines whether the type is a primitive, enum, <see cref="string"/>, or <see cref="decimal"/>, including their nullable forms.
         /// </summary>
@@ -27,11 +23,11 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns><see langword="true"/> if the type is a basic type; otherwise, <see langword="false"/>.</returns>
         public static bool IsBasicType(this Type? type)
         {
-            if (type == null || type.IsGenericType) return false;
+            if (type == null) return false;
 
             var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
 
-            return underlyingType.IsPrimitive || underlyingType.IsEnum || underlyingType == typeof(string) || underlyingType == typeof(float) || underlyingType == typeof(decimal);
+            return underlyingType.IsPrimitive || underlyingType.IsEnum || underlyingType == typeof(string) || underlyingType == typeof(decimal);
         }
 
         /// <summary>
@@ -41,11 +37,7 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns><see langword="true"/> if the type is or implements <see cref="IEnumerable{T}"/>; otherwise, <see langword="false"/>.</returns>
         public static bool IsIEnumerable(this Type? type)
         {
-            if (type == null) return false;
-
-            var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
-
-            return underlyingType.IsGenericType && (underlyingType.GetInterface(typeof(IEnumerable<>).Name) != null || underlyingType.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+            return IsOrImplementsGenericInterface(type, typeof(IEnumerable<>));
         }
 
         /// <summary>
@@ -55,11 +47,7 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns><see langword="true"/> if the type is or implements <see cref="ICollection{T}"/>; otherwise, <see langword="false"/>.</returns>
         public static bool IsICollection(this Type? type)
         {
-            if (type == null) return false;
-
-            var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
-
-            return !type.IsBasicType() && underlyingType.IsGenericType && (underlyingType.GetInterface(typeof(ICollection<>).Name) != null || underlyingType.GetGenericTypeDefinition() == typeof(ICollection<>));
+            return IsOrImplementsGenericInterface(type, typeof(ICollection<>));
         }
 
         /// <summary>
@@ -69,11 +57,15 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns><see langword="true"/> if the type is <see cref="List{T}"/>; otherwise, <see langword="false"/>.</returns>
         public static bool IsList(this Type? type)
         {
+            return type is { IsGenericType: true } && type.GetGenericTypeDefinition() == typeof(List<>);
+        }
+
+        private static bool IsOrImplementsGenericInterface(Type? type, Type interfaceDefinition)
+        {
             if (type == null) return false;
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == interfaceDefinition) return true;
 
-            var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
-
-            return !type.IsBasicType() && underlyingType.IsGenericType && (underlyingType.GetInterface(typeof(List<>).Name) != null || underlyingType.GetGenericTypeDefinition() == typeof(List<>));
+            return type.GetInterfaces().Any(candidate => candidate.IsGenericType && candidate.GetGenericTypeDefinition() == interfaceDefinition);
         }
 
         /// <summary>
@@ -85,7 +77,9 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns>The distinct types assignable to <paramref name="baseType"/>.</returns>
         public static IEnumerable<Type> WhereInheritsFrom(this IEnumerable<Type> types, Type baseType, bool includeBaseType = false)
         {
-            return types.Where(t => includeBaseType? baseType.IsAssignableFrom(t) : t != baseType && baseType.IsAssignableFrom(t)).Distinct();
+            ArgumentNullException.ThrowIfNull(types);
+            ArgumentNullException.ThrowIfNull(baseType);
+            return types.Where(t => t.InheritsFrom(baseType, includeBaseType)).Distinct();
         }
 
         /// <summary>
@@ -97,7 +91,9 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns><see langword="true"/> if the type inherits from <paramref name="baseType"/>; otherwise, <see langword="false"/>.</returns>
         public static bool InheritsFrom(this Type type, Type baseType, bool includeBaseType = false)
         {
-            return (includeBaseType? type == baseType : type != baseType) && baseType.IsAssignableFrom(type);
+            ArgumentNullException.ThrowIfNull(type);
+            ArgumentNullException.ThrowIfNull(baseType);
+            return (includeBaseType || type != baseType) && baseType.IsAssignableFrom(type);
         }
 
         /// <summary>
@@ -109,7 +105,9 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns>The distinct types for which <paramref name="parentType"/> is a base type.</returns>
         public static IEnumerable<Type> WhereIsBaseTypeOf(this IEnumerable<Type> types, Type parentType, bool includeBaseType = false)
         {
-            return types.Where(t => includeBaseType? parentType.IsBaseTypeOf(t) : t != parentType && parentType.IsBaseTypeOf(t)).Distinct();
+            ArgumentNullException.ThrowIfNull(types);
+            ArgumentNullException.ThrowIfNull(parentType);
+            return types.Where(t => parentType.IsBaseTypeOf(t, includeBaseType)).Distinct();
         }
 
         /// <summary>
@@ -121,7 +119,9 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns><see langword="true"/> if the type is a base type of <paramref name="childType"/>; otherwise, <see langword="false"/>.</returns>
         public static bool IsBaseTypeOf(this Type type, Type childType, bool includeChildType = false)
         {
-            return (includeChildType? type == childType : type != childType) && type.IsAssignableFrom(childType);
+            ArgumentNullException.ThrowIfNull(type);
+            ArgumentNullException.ThrowIfNull(childType);
+            return (includeChildType || type != childType) && type.IsAssignableFrom(childType);
         }
 
         /// <summary>
@@ -133,13 +133,13 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <exception cref="ArgumentNullException"><paramref name="type"/> is <see langword="null"/>.</exception>
         public static IEnumerable<Type> BaseTypes(this Type type, IEnumerable<Type>? universe = null)
         {
-            if (type == null)
-                throw new ArgumentNullException(nameof(type));
+            ArgumentNullException.ThrowIfNull(type);
 
+            var allowedTypes = universe?.ToHashSet();
             var currentType = type.BaseType;
             while (currentType != null)
             {
-                if (universe == null || universe.Contains(currentType))
+                if (allowedTypes == null || allowedTypes.Contains(currentType))
                 {
                     yield return currentType;
                 }
@@ -156,12 +156,12 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <exception cref="ArgumentNullException"><paramref name="type"/> is <see langword="null"/>.</exception>
         public static IEnumerable<Type> DescendantTypes(this Type type, IEnumerable<Type>? universe = null)
         {
-            if (type == null)
-                throw new ArgumentNullException(nameof(type));
+            ArgumentNullException.ThrowIfNull(type);
 
             var descendants = universe?.Where(t => t.IsSubclassOf(type)) ?? Enumerable.Empty<Type>();
             return descendants;
         }
+
         /// <summary>
         /// Returns the types whose base type is not in the collection.
         /// </summary>
@@ -169,7 +169,9 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns>The distinct types whose base type is not in <paramref name="types"/>.</returns>
         public static IEnumerable<Type> RootElements(this IEnumerable<Type> types)
         {
-            return types.Where(t => t.BaseType == null || !types.Contains(t.BaseType)).Distinct();
+            ArgumentNullException.ThrowIfNull(types);
+            var typeSet = types.ToHashSet();
+            return typeSet.Where(t => t.BaseType == null || !typeSet.Contains(t.BaseType)).ToList();
         }
 
         /// <summary>
@@ -181,8 +183,18 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// </returns>
         public static Dictionary<Type, IEnumerable<Type>> GroupByRootElements(this IEnumerable<Type> types)
         {
-            return types.RootElements().OrderBy(r => r.Name).ToDictionary(root => root, root => (IEnumerable<Type>)types.WhereInheritsFrom(root).OrderBy(t => t.Name));
-        }
+            ArgumentNullException.ThrowIfNull(types);
+            var typeSet = types.ToHashSet();
+            var roots = typeSet.RootElements().OrderBy(root => root.Name, StringComparer.Ordinal);
+            var groups = new Dictionary<Type, IEnumerable<Type>>();
 
+            foreach (var root in roots)
+            {
+                var descendants = typeSet.WhereInheritsFrom(root).OrderBy(type => type.Name, StringComparer.Ordinal).ToList();
+                groups.Add(root, descendants);
+            }
+
+            return groups;
+        }
     }
 }

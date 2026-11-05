@@ -1,6 +1,4 @@
-﻿using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
+using System.Reflection;
 
 namespace vsc.CodeAnalysisUtills.Extensions
 {
@@ -16,7 +14,7 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <returns>
         /// The member's data type, or <see langword="null"/> if the member is not a property, field, or method.
         /// </returns>
-        public static Type? GetMemberDataType(this MemberInfo member) => member switch
+        public static Type? GetMemberDataType(this MemberInfo? member) => member switch
         {
             PropertyInfo property => property.PropertyType,
             FieldInfo field => field.FieldType,
@@ -30,12 +28,14 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <param name="member">The member to inspect.</param>
         /// <returns><see langword="true"/> if the member is a field or property of a basic type; otherwise, <see langword="false"/>.</returns>
         /// <seealso cref="SystemTypeExtensions.IsBasicType(Type?)"/>
-        public static bool MemberIsBasic(this MemberInfo member)
+        public static bool MemberIsBasic(this MemberInfo? member)
         {
-            return member != null && (
-                    (member is FieldInfo f && f.FieldType.IsBasicType())
-                    || (member is PropertyInfo p && p.PropertyType.IsBasicType())
-                );
+            return member switch
+            {
+                FieldInfo field => field.FieldType.IsBasicType(),
+                PropertyInfo property => property.PropertyType.IsBasicType(),
+                _ => false
+            };
         }
 
         /// <summary>
@@ -43,14 +43,16 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// </summary>
         /// <param name="member">The member to inspect.</param>
         /// <returns><see langword="true"/> if the member is a field or property of a class type that is not an <see cref="IEnumerable{T}"/>; otherwise, <see langword="false"/>.</returns>
-        public static bool MemberIsClass(this MemberInfo member)
+        public static bool MemberIsClass(this MemberInfo? member)
         {
-            return member != null
-                && (
-                        (member is FieldInfo f && f.FieldType.IsClass)
-                        || (member is PropertyInfo p && p.PropertyType.IsClass)
-                    )
-                && !member.MemberIsIEnumerable();
+            var type = member switch
+            {
+                FieldInfo field => field.FieldType,
+                PropertyInfo property => property.PropertyType,
+                _ => null
+            };
+
+            return type is { IsClass: true } && !type.IsIEnumerable();
         }
 
         /// <summary>
@@ -58,12 +60,14 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// </summary>
         /// <param name="member">The member to inspect.</param>
         /// <returns><see langword="true"/> if the member is a field or property of type <see cref="List{T}"/>; otherwise, <see langword="false"/>.</returns>
-        public static bool MemberIsList(this MemberInfo member)
+        public static bool MemberIsList(this MemberInfo? member)
         {
-            return member != null && (
-                (member is FieldInfo f && f.FieldType.IsList())
-                || (member is PropertyInfo p && p.PropertyType.IsList())
-            );
+            return member switch
+            {
+                FieldInfo field => field.FieldType.IsList(),
+                PropertyInfo property => property.PropertyType.IsList(),
+                _ => false
+            };
         }
 
         /// <summary>
@@ -71,12 +75,14 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// </summary>
         /// <param name="member">The member to inspect.</param>
         /// <returns><see langword="true"/> if the member is a field or property whose type implements <see cref="ICollection{T}"/>; otherwise, <see langword="false"/>.</returns>
-        public static bool MemberIsICollection(this MemberInfo member)
+        public static bool MemberIsICollection(this MemberInfo? member)
         {
-            return member != null && (
-                    (member is FieldInfo f && f.FieldType.IsICollection())
-                    || (member is PropertyInfo p && p.PropertyType.IsICollection())
-                );
+            return member switch
+            {
+                FieldInfo field => field.FieldType.IsICollection(),
+                PropertyInfo property => property.PropertyType.IsICollection(),
+                _ => false
+            };
         }
 
         /// <summary>
@@ -84,12 +90,14 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// </summary>
         /// <param name="member">The member to inspect.</param>
         /// <returns><see langword="true"/> if the member is a field or property whose type implements <see cref="IEnumerable{T}"/>; otherwise, <see langword="false"/>.</returns>
-        public static bool MemberIsIEnumerable(this MemberInfo member)
+        public static bool MemberIsIEnumerable(this MemberInfo? member)
         {
-            return member != null && (
-                    (member is FieldInfo f && f.FieldType.IsIEnumerable())
-                    || (member is PropertyInfo p && p.PropertyType.IsIEnumerable())
-                );
+            return member switch
+            {
+                FieldInfo field => field.FieldType.IsIEnumerable(),
+                PropertyInfo property => property.PropertyType.IsIEnumerable(),
+                _ => false
+            };
         }
 
         /// <summary>
@@ -97,8 +105,7 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// </summary>
         /// <param name="member">The member to inspect.</param>
         /// <returns><see langword="true"/> if the member is a method; otherwise, <see langword="false"/>.</returns>
-        public static bool MemberIsMethod(this MemberInfo member) => member != null && (member is MethodInfo);
-
+        public static bool MemberIsMethod(this MemberInfo? member) => member is MethodInfo;
     }
 
     /// <summary>
@@ -109,6 +116,9 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <inheritdoc/>
         public bool Equals(MemberInfo? x, MemberInfo? y)
         {
+            if (ReferenceEquals(x, y))
+                return true;
+
             if (x == null || y == null)
                 return false;
 
@@ -118,13 +128,8 @@ namespace vsc.CodeAnalysisUtills.Extensions
         /// <inheritdoc/>
         public int GetHashCode(MemberInfo obj)
         {
-            using (MD5 md5 = MD5.Create())
-                unchecked
-                {
-                    byte[] bytes = md5.ComputeHash(Encoding.UTF8.GetBytes(obj.Name + obj.DeclaringType?.FullName ?? ""));
-                    int positiveHash = Math.Abs(BitConverter.ToInt32(bytes, 0));
-                    return (positiveHash == int.MinValue) ? 0 : positiveHash;
-                }
+            ArgumentNullException.ThrowIfNull(obj);
+            return HashCode.Combine(obj.Name, obj.DeclaringType);
         }
     }
 }

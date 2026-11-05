@@ -1,3 +1,7 @@
 <Solution>
-  <Project Path="CodeAnalysisUtills.csproj" />
+  <Project Path="CodeAnalysisUtills/CodeAnalysisUtills.csproj" />
+  <Folder Name="/.github/">
+    <File Path=".github/copilot-instructions.md" />
+  </Folder>
+  <Project Path="CodeAnalysisUtills.Tests/CodeAnalysisUtills.Tests.csproj" Id="68001f2d-c585-4cb7-9d1f-b80b6fa21a82" />
 </Solution>

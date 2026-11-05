@@ -3,6 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <PackageId>CodeAnalysisUtills</PackageId>
     <Version>1.2.0</Version>
     <Authors>vsc</Authors>
@@ -17,8 +18,7 @@
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
   <ItemGroup>
-    <None Include=".github\workflows\**" />
-    <None Include=".github\copilot-instructions.md" />
+    <Compile Include="src\**\*.cs" />
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' != 'net6'">
